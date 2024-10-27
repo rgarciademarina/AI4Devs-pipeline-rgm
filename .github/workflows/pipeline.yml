@@ -53,9 +53,9 @@ jobs:
           # Instalar dependencias y reiniciar aplicación
           ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.EC2_INSTANCE }} '
             cd ~/backend && 
-            npm ci --production && 
+            rm -rf node_modules && # Eliminar node_modules existente
+            npm install && # Cambiar npm ci por npm install
             npm run prisma:generate &&
             pm2 delete backend || true && 
             pm2 start dist/index.js --name backend
           '
-
