@@ -1,0 +1,61 @@
+name: Backend CI/CD Pipeline
+
+on:
+  pull_request:
+    branches: ['*']
+    paths:
+      - 'backend/**'  # Solo se ejecuta cuando hay cambios en la carpeta backend
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Run Tests
+        working-directory: backend
+        run: npm test
+
+      - name: Build Application
+        working-directory: backend
+        run: npm run build
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh/
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.EC2_INSTANCE }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to EC2
+        run: |
+          # Crear directorio si no existe y establecer permisos
+          ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.EC2_INSTANCE }} '
+            mkdir -p ~/backend
+          '
+          
+          # Copiar archivos necesarios
+          scp -i ~/.ssh/deploy_key -r backend/dist backend/package*.json backend/prisma ubuntu@${{ secrets.EC2_INSTANCE }}:~/backend/
+          
+          # Instalar dependencias y reiniciar aplicación
+          ssh -i ~/.ssh/deploy_key ubuntu@${{ secrets.EC2_INSTANCE }} '
+            cd ~/backend && 
+            rm -rf node_modules && # Eliminar node_modules existente
+            npm install && # Cambiar npm ci por npm install
+            npm run prisma:generate &&
+            pm2 delete backend || true && 
+            pm2 start dist/index.js --name backend
+          '
